@@ -1,0 +1,11 @@
+{
+  "name": "@agentops/roles-config",
+  "version": "0.1.0",
+  "private": true,
+  "description": "AgentOps 角色与权限配置",
+  "main": "./src/roles.json",
+  "exports": {
+    ".": "./src/roles.json",
+    "./roles.json": "./src/roles.json"
+  }
+}

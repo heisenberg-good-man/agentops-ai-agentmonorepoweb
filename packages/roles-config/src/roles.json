@@ -1,0 +1,43 @@
+[
+  {
+    "role": "admin",
+    "roleName": "平台管理员",
+    "description": "拥有系统全部权限，可进行用户管理、全局配置、任务审计等所有操作",
+    "permissions": [
+      "task:view",
+      "task:create",
+      "task:start",
+      "task:stop",
+      "task:retry",
+      "agent:view",
+      "agent:manage",
+      "role:view",
+      "role:manage",
+      "user:manage"
+    ]
+  },
+  {
+    "role": "operator",
+    "roleName": "运维操作员",
+    "description": "负责日常任务的创建、启动、停止、异常处理等运维操作",
+    "permissions": [
+      "task:view",
+      "task:create",
+      "task:start",
+      "task:stop",
+      "task:retry",
+      "agent:view",
+      "role:view"
+    ]
+  },
+  {
+    "role": "viewer",
+    "roleName": "只读观察者",
+    "description": "仅具有查看权限，可浏览任务看板、任务详情和运行日志，但无任何操作权限",
+    "permissions": [
+      "task:view",
+      "agent:view",
+      "role:view"
+    ]
+  }
+]

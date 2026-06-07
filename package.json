@@ -1,0 +1,26 @@
+{
+  "name": "agentops-ai-agentmonorepoweb",
+  "private": true,
+  "version": "0.1.0",
+  "description": "AgentOps AI Agent 自动作业平台 - Monorepo",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "dev": "concurrently \"npm:dev:backend\" \"npm:dev:web\"",
+    "dev:web": "npm --workspace @agentops/web-console run dev",
+    "dev:backend": "npm --workspace @agentops/backend run dev",
+    "build": "npm run build --workspaces --if-present",
+    "build:types": "npm --workspace @agentops/shared-types run build",
+    "build:web": "npm --workspace @agentops/web-console run build",
+    "install:backend": "pip install -r apps/backend/requirements.txt",
+    "start": "concurrently \"npm:start:backend\" \"npm:start:web\"",
+    "start:web": "npm --workspace @agentops/web-console run preview",
+    "start:backend": "npm --workspace @agentops/backend run start"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2",
+    "typescript": "^5.3.3"
+  }
+}
