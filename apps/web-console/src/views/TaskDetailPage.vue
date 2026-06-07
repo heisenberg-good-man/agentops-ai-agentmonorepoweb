@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, inject, onMounted } from 'vue';
+import { ref, computed, inject, onMounted, reactive } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import {
   ArrowLeft,
@@ -14,6 +14,10 @@ import {
   Loader2,
   FileText,
   Bot,
+  History,
+  X,
+  Check,
+  AlertCircle,
 } from 'lucide-vue-next';
 import type { Task } from '@agentops/shared-types';
 import { TASK_PRIORITY_LABELS, TASK_STATUS_LABELS } from '@agentops/shared-types';
@@ -23,14 +27,53 @@ import StepTimeline from '@/components/StepTimeline.vue';
 import LogPanel from '@/components/LogPanel.vue';
 
 type HasPermissionFn = (permission: string) => boolean;
+type ShowToastFn = (message: string, type?: 'success' | 'error') => void;
+
+interface OperationRecord {
+  id: string;
+  action: string;
+  detail: string;
+  timestamp: string;
+  operator: string;
+  status: 'success' | 'failed';
+}
+
+interface ConfirmDialog {
+  visible: boolean;
+  action: 'start' | 'stop' | 'retry' | null;
+  title: string;
+  message: string;
+  confirmText: string;
+}
 
 const route = useRoute();
 const router = useRouter();
 const hasPermission = inject<HasPermissionFn>('hasPermission');
+const showToast = inject<ShowToastFn>('showToast');
 
 const { task, logs, loading, fetchTask, fetchTaskLogs, handleStartTask, handleStopTask, handleRetryTask } = useTasks();
 
 const actionLoading = ref<'start' | 'stop' | 'retry' | null>(null);
+const activeSubTab = ref<'steps' | 'logs' | 'records'>('steps');
+
+const confirmDialog = reactive<ConfirmDialog>({
+  visible: false,
+  action: null,
+  title: '',
+  message: '',
+  confirmText: '',
+});
+
+const operationRecords = ref<OperationRecord[]>([
+  {
+    id: 'op-init',
+    action: '任务加载',
+    detail: '从后端获取任务详情和日志数据',
+    timestamp: new Date(Date.now() - 60000).toISOString(),
+    operator: 'system',
+    status: 'success',
+  },
+]);
 
 const formatDateTime = (iso?: string) => {
   if (!iso) return '-';
@@ -43,38 +86,87 @@ const formatDateTime = (iso?: string) => {
   });
 };
 
+const addOperationRecord = (action: string, detail: string, status: 'success' | 'failed') => {
+  operationRecords.value.unshift({
+    id: `op-${Date.now()}`,
+    action,
+    detail,
+    timestamp: new Date().toISOString(),
+    operator: '当前用户',
+    status,
+  });
+};
+
 const goBack = () => {
   router.push('/');
 };
 
-const startTask = async () => {
-  if (!task.value) return;
-  actionLoading.value = 'start';
+const openConfirm = (action: 'start' | 'stop' | 'retry') => {
+  const configs: Record<string, { title: string; message: string; confirmText: string }> = {
+    start: {
+      title: '确认启动任务？',
+      message: `任务「${task.value?.name}」将开始执行，是否确认？`,
+      confirmText: '启动任务',
+    },
+    stop: {
+      title: '确认停止任务？',
+      message: `任务「${task.value?.name}」正在运行中，停止后未完成的步骤将被终止，是否确认？`,
+      confirmText: '停止任务',
+    },
+    retry: {
+      title: '确认重试任务？',
+      message: `任务「${task.value?.name}」将从失败步骤重新执行，错误步骤会被重置，是否确认？`,
+      confirmText: '重试任务',
+    },
+  };
+  const cfg = configs[action];
+  confirmDialog.visible = true;
+  confirmDialog.action = action;
+  confirmDialog.title = cfg.title;
+  confirmDialog.message = cfg.message;
+  confirmDialog.confirmText = cfg.confirmText;
+};
+
+const closeConfirm = () => {
+  confirmDialog.visible = false;
+  confirmDialog.action = null;
+};
+
+const executeConfirmedAction = async () => {
+  const action = confirmDialog.action;
+  if (!action || !task.value) return;
+  closeConfirm();
+
+  const actionLabels: Record<string, string> = { start: '启动任务', stop: '停止任务', retry: '重试任务' };
+  actionLoading.value = action;
+
   try {
-    await handleStartTask(task.value.id);
+    if (action === 'start') {
+      await handleStartTask(task.value.id);
+    } else if (action === 'stop') {
+      await handleStopTask(task.value.id);
+    } else if (action === 'retry') {
+      await handleRetryTask(task.value.id);
+      await fetchTaskLogs(task.value.id);
+    }
+    addOperationRecord(actionLabels[action], `任务ID: ${task.value.id}`, 'success');
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : '操作失败';
+    addOperationRecord(actionLabels[action], `任务ID: ${task.value.id}，错误: ${msg}`, 'failed');
+    showToast?.(msg, 'error');
   } finally {
     actionLoading.value = null;
   }
 };
 
-const stopTask = async () => {
-  if (!task.value) return;
-  actionLoading.value = 'stop';
-  try {
-    await handleStopTask(task.value.id);
-  } finally {
-    actionLoading.value = null;
-  }
-};
+const startTask = () => openConfirm('start');
+const stopTask = () => openConfirm('stop');
+const retryTask = () => openConfirm('retry');
 
-const retryTask = async () => {
-  if (!task.value) return;
-  actionLoading.value = 'retry';
-  try {
-    await handleRetryTask(task.value.id);
+const handleLogsRefresh = async () => {
+  if (task.value) {
     await fetchTaskLogs(task.value.id);
-  } finally {
-    actionLoading.value = null;
+    addOperationRecord('刷新日志', `任务ID: ${task.value.id}`, 'success');
   }
 };
 
@@ -287,17 +379,146 @@ onMounted(async () => {
         </div>
       </div>
 
-      <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 flex-1 min-h-0">
-        <div class="card p-5 flex flex-col min-h-[400px]">
-          <h3 class="text-sm font-medium text-slate-400 mb-4">执行步骤</h3>
+      <div class="mb-4 flex gap-1 p-1 bg-slate-800/50 rounded-lg w-fit">
+        <button
+          @click="activeSubTab = 'steps'"
+          class="px-4 py-2 rounded-md text-sm font-medium transition-colors inline-flex items-center gap-2"
+          :class="activeSubTab === 'steps' ? 'bg-slate-700 text-slate-100' : 'text-slate-400 hover:text-slate-200'"
+        >
+          <FileText class="w-4 h-4" />
+          执行步骤
+        </button>
+        <button
+          @click="activeSubTab = 'logs'"
+          class="px-4 py-2 rounded-md text-sm font-medium transition-colors inline-flex items-center gap-2"
+          :class="activeSubTab === 'logs' ? 'bg-slate-700 text-slate-100' : 'text-slate-400 hover:text-slate-200'"
+        >
+          <AlertCircle class="w-4 h-4" />
+          执行日志
+          <span class="text-xs px-1.5 py-0.5 rounded bg-slate-600 text-slate-300">{{ logs.length }}</span>
+        </button>
+        <button
+          @click="activeSubTab = 'records'"
+          class="px-4 py-2 rounded-md text-sm font-medium transition-colors inline-flex items-center gap-2"
+          :class="activeSubTab === 'records' ? 'bg-slate-700 text-slate-100' : 'text-slate-400 hover:text-slate-200'"
+        >
+          <History class="w-4 h-4" />
+          操作记录
+          <span class="text-xs px-1.5 py-0.5 rounded bg-slate-600 text-slate-300">{{ operationRecords.length }}</span>
+        </button>
+      </div>
+
+      <div class="flex-1 min-h-[400px]">
+        <div v-show="activeSubTab === 'steps'" class="card p-5 h-full flex flex-col">
+          <h3 class="text-sm font-medium text-slate-400 mb-4">执行步骤时间线</h3>
           <div class="flex-1 overflow-y-auto pr-2">
             <StepTimeline :steps="task.steps" />
           </div>
         </div>
-        <div class="min-h-[400px]">
-          <LogPanel :logs="logs" />
+
+        <div v-show="activeSubTab === 'logs'" class="h-full min-h-[400px]">
+          <LogPanel :logs="logs" :task-id="task.id" @refresh="handleLogsRefresh" />
+        </div>
+
+        <div v-show="activeSubTab === 'records'" class="card overflow-hidden h-full">
+          <div class="px-5 py-4 border-b border-slate-700 bg-slate-800/30 flex items-center justify-between">
+            <div class="flex items-center gap-2">
+              <History class="w-4 h-4 text-cyan-400" />
+              <h3 class="font-semibold text-slate-100">操作记录</h3>
+              <span class="text-xs text-slate-500">共 {{ operationRecords.length }} 条可复查记录</span>
+            </div>
+          </div>
+          <div v-if="operationRecords.length === 0" class="py-12 text-center text-slate-500">
+            暂无操作记录
+          </div>
+          <div v-else class="divide-y divide-slate-700 max-h-[400px] overflow-y-auto">
+            <div
+              v-for="record in operationRecords"
+              :key="record.id"
+              class="px-5 py-3 flex items-start gap-4 hover:bg-slate-800/30 transition-colors"
+            >
+              <div
+                class="w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5"
+                :class="record.status === 'success' ? 'bg-green-500/10 text-green-400' : 'bg-red-500/10 text-red-400'"
+              >
+                <Check v-if="record.status === 'success'" class="w-4 h-4" />
+                <X v-else class="w-4 h-4" />
+              </div>
+              <div class="flex-1 min-w-0">
+                <div class="flex items-center gap-2 mb-1">
+                  <span class="font-medium text-sm text-slate-200">{{ record.action }}</span>
+                  <span
+                    class="px-2 py-0.5 rounded text-xs font-medium"
+                    :class="record.status === 'success' ? 'bg-green-500/10 text-green-400' : 'bg-red-500/10 text-red-400'"
+                  >
+                    {{ record.status === 'success' ? '成功' : '失败' }}
+                  </span>
+                </div>
+                <p class="text-xs text-slate-400 mb-1">{{ record.detail }}</p>
+                <div class="flex items-center gap-3 text-xs text-slate-600">
+                  <span class="inline-flex items-center gap-1">
+                    <Clock class="w-3 h-3" />
+                    {{ formatDateTime(record.timestamp) }}
+                  </span>
+                  <span class="inline-flex items-center gap-1">
+                    <User class="w-3 h-3" />
+                    {{ record.operator }}
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
     </template>
+
+    <Teleport to="body">
+      <Transition name="fade">
+        <div v-if="confirmDialog.visible" class="fixed inset-0 z-50 flex items-center justify-center">
+          <div class="absolute inset-0 bg-black/60 backdrop-blur-sm" @click="closeConfirm" />
+          <div class="relative card w-full max-w-md mx-4 animate-fade-in">
+            <div class="flex items-center justify-between px-5 py-4 border-b border-slate-700">
+              <h3 class="text-lg font-semibold text-slate-100">{{ confirmDialog.title }}</h3>
+              <button
+                @click="closeConfirm"
+                class="p-1 rounded text-slate-400 hover:text-slate-200 hover:bg-slate-700 transition-colors"
+              >
+                <X class="w-5 h-5" />
+              </button>
+            </div>
+            <div class="px-5 py-4">
+              <div class="flex items-start gap-3">
+                <AlertCircle class="w-6 h-6 text-amber-400 flex-shrink-0 mt-0.5" />
+                <p class="text-sm text-slate-300 leading-relaxed">{{ confirmDialog.message }}</p>
+              </div>
+            </div>
+            <div class="px-5 py-3 border-t border-slate-700 flex items-center justify-end gap-3">
+              <button @click="closeConfirm" class="btn-secondary" :disabled="actionLoading !== null">
+                取消
+              </button>
+              <button
+                @click="executeConfirmedAction"
+                class="btn-primary inline-flex items-center gap-2"
+                :disabled="actionLoading !== null"
+              >
+                <Loader2 v-if="actionLoading !== null" class="w-4 h-4 animate-spin" />
+                {{ confirmDialog.confirmText }}
+              </button>
+            </div>
+          </div>
+        </div>
+      </Transition>
+    </Teleport>
   </div>
 </template>
+
+<style scoped>
+.fade-enter-active,
+.fade-leave-active {
+  transition: opacity 0.2s ease;
+}
+.fade-enter-from,
+.fade-leave-to {
+  opacity: 0;
+}
+</style>
