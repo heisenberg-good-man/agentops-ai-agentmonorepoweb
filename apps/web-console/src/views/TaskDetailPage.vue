@@ -75,7 +75,7 @@ const operationRecords = ref<OperationRecord[]>([
   },
 ]);
 
-const formatDateTime = (iso?: string) => {
+const formatDateTime = (iso?: string | null) => {
   if (!iso) return '-';
   return new Date(iso).toLocaleString('zh-CN', {
     year: 'numeric',

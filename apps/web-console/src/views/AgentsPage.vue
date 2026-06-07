@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, inject, onMounted, reactive } from 'vue';
-import { Bot, Shield, Loader2, Check, X, Edit3, RotateCcw, Save, History, Clock, User } from 'lucide-vue-next';
+import { Bot, Shield, Loader2, Check, X, Edit3, RotateCcw, Save, History, Clock, User, AlertCircle } from 'lucide-vue-next';
 import { ALL_PERMISSIONS, USER_ROLE_LABELS } from '@agentops/shared-types';
 import type { UserRole } from '@agentops/shared-types';
 import { useAgents } from '@/composables/useAgents';
@@ -20,15 +20,32 @@ interface OperationRecord {
   status: 'success' | 'failed';
 }
 
+interface ConfirmDialog {
+  visible: boolean;
+  action: 'cancel-edit' | null;
+  title: string;
+  message: string;
+  confirmText: string;
+}
+
 const hasPermission = inject<HasPermissionFn>('hasPermission');
 const showToast = inject<ShowToastFn>('showToast');
 const { agents, loading: agentsLoading, fetchAgents } = useAgents();
 const { roles, loading: rolesLoading, fetchRoles, handleUpdateRole } = useRoles();
 
-const activeTab = ref<'agents' | 'roles'>('agents');
+const activeTab = ref<'agents' | 'roles' | 'records'>('agents');
 const savingRole = ref<UserRole | null>(null);
 const editMode = ref(false);
 const draftPermissions = reactive<Record<UserRole, string[]>>({ admin: [], operator: [], viewer: [] });
+
+const confirmDialog = reactive<ConfirmDialog>({
+  visible: false,
+  action: null,
+  title: '',
+  message: '',
+  confirmText: '',
+});
+
 const operationRecords = ref<OperationRecord[]>([
   {
     id: 'op-init-1',
@@ -54,7 +71,7 @@ const hasRolePermission = (role: UserRole, permission: string) => {
 const hasDraftChanges = computed(() => {
   if (!editMode.value) return false;
   return roles.value.some((roleConfig) => {
-    const draft = draftPermissions[roleConfig.role as UserRole] || [];
+    const draft = draftPermissions[roleConfig.role] || [];
     const original = roleConfig.permissions;
     if (draft.length !== original.length) return true;
     return draft.some((p) => !original.includes(p));
@@ -68,18 +85,55 @@ const formatTime = (iso: string) => {
 const enterEditMode = () => {
   if (!canManageRoles.value) return;
   roles.value.forEach((r) => {
-    draftPermissions[r.role as UserRole] = [...r.permissions];
+    draftPermissions[r.role] = [...r.permissions];
   });
   editMode.value = true;
+  operationRecords.value.unshift({
+    id: `op-${Date.now()}-edit`,
+    role: 'admin',
+    action: '进入编辑模式',
+    detail: '开始修改角色权限配置',
+    timestamp: new Date().toISOString(),
+    operator: '当前用户',
+    status: 'success',
+  });
   showToast?.('已进入编辑模式，修改完成后请点击保存');
+};
+
+const closeConfirm = () => {
+  confirmDialog.visible = false;
+  confirmDialog.action = null;
+};
+
+const openCancelConfirm = () => {
+  confirmDialog.visible = true;
+  confirmDialog.action = 'cancel-edit';
+  confirmDialog.title = '确认取消编辑？';
+  confirmDialog.message = '未保存的修改将丢失，是否继续？';
+  confirmDialog.confirmText = '确认取消';
+};
+
+const executeConfirmedCancel = () => {
+  closeConfirm();
+  editMode.value = false;
+  operationRecords.value.unshift({
+    id: `op-${Date.now()}-cancel`,
+    role: 'admin',
+    action: '取消编辑',
+    detail: '放弃未保存的角色权限修改',
+    timestamp: new Date().toISOString(),
+    operator: '当前用户',
+    status: 'success',
+  });
+  showToast?.('已取消编辑');
 };
 
 const cancelEditMode = () => {
   if (hasDraftChanges.value) {
-    if (!confirm('确定要取消编辑吗？未保存的修改将丢失。')) return;
+    openCancelConfirm();
+    return;
   }
-  editMode.value = false;
-  showToast?.('已取消编辑');
+  executeConfirmedCancel();
 };
 
 const togglePermission = (role: UserRole, permission: string) => {
@@ -95,7 +149,7 @@ const togglePermission = (role: UserRole, permission: string) => {
 const saveAllChanges = async () => {
   if (!canManageRoles.value) return;
   const changedRoles = roles.value.filter((roleConfig) => {
-    const draft = draftPermissions[roleConfig.role as UserRole] || [];
+    const draft = draftPermissions[roleConfig.role] || [];
     const original = roleConfig.permissions;
     if (draft.length !== original.length) return true;
     return draft.some((p) => !original.includes(p));
@@ -110,7 +164,7 @@ const saveAllChanges = async () => {
   let failCount = 0;
 
   for (const roleConfig of changedRoles) {
-    const role = roleConfig.role as UserRole;
+    const role = roleConfig.role;
     const newPermissions = draftPermissions[role] || [];
     const added = newPermissions.filter((p) => !roleConfig.permissions.includes(p));
     const removed = roleConfig.permissions.filter((p) => !newPermissions.includes(p));
@@ -193,7 +247,7 @@ onMounted(() => {
       </button>
       <button
         v-if="hasPermission?.('role:view')"
-        @click="activeTab = activeTab === 'records' ? 'agents' : 'records'"
+        @click="activeTab = 'records'"
         class="px-4 py-2 rounded-md text-sm font-medium transition-colors inline-flex items-center gap-2"
         :class="activeTab === 'records' ? 'bg-slate-700 text-slate-100' : 'text-slate-400 hover:text-slate-200'"
       >
@@ -287,7 +341,7 @@ onMounted(() => {
                 </div>
                 <div>
                   <h3 class="font-semibold text-slate-100">
-                    {{ USER_ROLE_LABELS[role.role as UserRole] }}
+                    {{ USER_ROLE_LABELS[role.role] }}
                     <span class="text-xs text-slate-500 font-normal ml-2">{{ role.role }}</span>
                   </h3>
                   <p class="text-sm text-slate-500">{{ role.description }}</p>
@@ -295,7 +349,7 @@ onMounted(() => {
               </div>
               <div class="flex items-center gap-3">
                 <span class="text-xs text-slate-500">
-                  共 {{ (editMode ? draftPermissions[role.role as UserRole] : role.permissions).length }} 项权限
+                  共 {{ (editMode ? draftPermissions[role.role] : role.permissions).length }} 项权限
                 </span>
                 <div v-if="savingRole === role.role" class="flex items-center gap-2 text-sm text-cyan-400">
                   <Loader2 class="w-4 h-4 animate-spin" />
@@ -310,23 +364,23 @@ onMounted(() => {
                   :key="perm.key"
                   class="flex items-start gap-3 p-3 rounded-lg border transition-all"
                   :class="[
-                    hasRolePermission(role.role as UserRole, perm.key)
+                    hasRolePermission(role.role, perm.key)
                       ? 'bg-cyan-500/5 border-cyan-500/20'
                       : 'bg-slate-800/30 border-slate-700',
                     editMode && canManageRoles ? 'cursor-pointer hover:border-cyan-500/40 hover:bg-slate-800/60' : 'opacity-90',
                   ]"
-                  @click="togglePermission(role.role as UserRole, perm.key)"
+                  @click="togglePermission(role.role, perm.key)"
                 >
                   <div
                     class="w-5 h-5 rounded flex items-center justify-center flex-shrink-0 mt-0.5 transition-colors"
                     :class="[
-                      hasRolePermission(role.role as UserRole, perm.key)
+                      hasRolePermission(role.role, perm.key)
                         ? 'bg-gradient-to-br from-cyan-500 to-blue-600'
                         : 'bg-slate-700 border border-slate-600',
                     ]"
                   >
                     <Check
-                      v-if="hasRolePermission(role.role as UserRole, perm.key)"
+                      v-if="hasRolePermission(role.role, perm.key)"
                       class="w-3 h-3 text-white"
                     />
                   </div>
@@ -404,5 +458,53 @@ onMounted(() => {
         </div>
       </div>
     </template>
+
+    <Teleport to="body">
+      <Transition name="fade">
+        <div v-if="confirmDialog.visible" class="fixed inset-0 z-50 flex items-center justify-center">
+          <div class="absolute inset-0 bg-black/60 backdrop-blur-sm" @click="closeConfirm" />
+          <div class="relative card w-full max-w-md mx-4 animate-fade-in">
+            <div class="flex items-center justify-between px-5 py-4 border-b border-slate-700">
+              <h3 class="text-lg font-semibold text-slate-100">{{ confirmDialog.title }}</h3>
+              <button
+                @click="closeConfirm"
+                class="p-1 rounded text-slate-400 hover:text-slate-200 hover:bg-slate-700 transition-colors"
+              >
+                <X class="w-5 h-5" />
+              </button>
+            </div>
+            <div class="px-5 py-4">
+              <div class="flex items-start gap-3">
+                <AlertCircle class="w-6 h-6 text-amber-400 flex-shrink-0 mt-0.5" />
+                <p class="text-sm text-slate-300 leading-relaxed">{{ confirmDialog.message }}</p>
+              </div>
+            </div>
+            <div class="px-5 py-3 border-t border-slate-700 flex items-center justify-end gap-3">
+              <button @click="closeConfirm" class="btn-secondary" :disabled="savingRole !== null">
+                继续编辑
+              </button>
+              <button
+                @click="executeConfirmedCancel"
+                class="btn-danger inline-flex items-center gap-2"
+                :disabled="savingRole !== null"
+              >
+                {{ confirmDialog.confirmText }}
+              </button>
+            </div>
+          </div>
+        </div>
+      </Transition>
+    </Teleport>
   </div>
 </template>
+
+<style scoped>
+.fade-enter-active,
+.fade-leave-active {
+  transition: opacity 0.2s ease;
+}
+.fade-enter-from,
+.fade-leave-to {
+  opacity: 0;
+}
+</style>

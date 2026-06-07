@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, inject, onMounted, watch } from 'vue';
+import { ref, computed, inject, onMounted, watch, reactive } from 'vue';
 import { Plus, X, LayoutDashboard, Loader2, AlertCircle, Code, Globe, GitBranch, MessageSquare, Sparkles } from 'lucide-vue-next';
 import type { TaskPriority, CreateTaskRequest } from '@agentops/shared-types';
 import { TASK_PRIORITY_LABELS } from '@agentops/shared-types';
@@ -13,6 +13,14 @@ const { tasks, loading, fetchTasks, handleCreateTask } = useTasks();
 const hasPermission = inject<HasPermissionFn>('hasPermission');
 const showToast = inject<ShowToastFn>('showToast');
 
+interface ConfirmDialog {
+  visible: boolean;
+  action: 'close-modal' | null;
+  title: string;
+  message: string;
+  confirmText: string;
+}
+
 const showModal = ref(false);
 const submitting = ref(false);
 const formError = ref('');
@@ -20,6 +28,14 @@ const formData = ref<CreateTaskRequest>({
   name: '',
   description: '',
   priority: 'medium',
+});
+
+const confirmDialog = reactive<ConfirmDialog>({
+  visible: false,
+  action: null,
+  title: '',
+  message: '',
+  confirmText: '',
 });
 
 const priorities: TaskPriority[] = ['low', 'medium', 'high', 'critical'];
@@ -51,9 +67,30 @@ const openModal = () => {
   formError.value = '';
 };
 
+const closeConfirm = () => {
+  confirmDialog.visible = false;
+  confirmDialog.action = null;
+};
+
+const openCloseConfirm = () => {
+  confirmDialog.visible = true;
+  confirmDialog.action = 'close-modal';
+  confirmDialog.title = '确认取消创建任务？';
+  confirmDialog.message = '已输入的内容将丢失，是否继续？';
+  confirmDialog.confirmText = '确认取消';
+};
+
+const executeConfirmedClose = () => {
+  closeConfirm();
+  showModal.value = false;
+  formError.value = '';
+  showToast?.('已取消创建');
+};
+
 const closeModal = () => {
   if (hasFormContent.value && !submitting.value) {
-    if (!confirm('确定要取消吗？已输入的内容将丢失。')) return;
+    openCloseConfirm();
+    return;
   }
   showModal.value = false;
   formError.value = '';
@@ -228,6 +265,39 @@ onMounted(() => {
               <button type="submit" @click="submitForm" class="btn-primary inline-flex items-center gap-2" :disabled="submitting">
                 <Loader2 v-if="submitting" class="w-4 h-4 animate-spin" />
                 {{ submitting ? '创建中...' : '创建任务' }}
+              </button>
+            </div>
+          </div>
+        </div>
+      </Transition>
+    </Teleport>
+
+    <Teleport to="body">
+      <Transition name="modal">
+        <div v-if="confirmDialog.visible" class="fixed inset-0 z-[60] flex items-center justify-center">
+          <div class="absolute inset-0 bg-black/60 backdrop-blur-sm" @click="closeConfirm" />
+          <div class="relative card w-full max-w-md mx-4 animate-fade-in">
+            <div class="flex items-center justify-between px-5 py-4 border-b border-slate-700">
+              <h3 class="text-lg font-semibold text-slate-100">{{ confirmDialog.title }}</h3>
+              <button
+                @click="closeConfirm"
+                class="p-1 rounded text-slate-400 hover:text-slate-200 hover:bg-slate-700 transition-colors"
+              >
+                <X class="w-5 h-5" />
+              </button>
+            </div>
+            <div class="px-5 py-4">
+              <div class="flex items-start gap-3">
+                <AlertCircle class="w-6 h-6 text-amber-400 flex-shrink-0 mt-0.5" />
+                <p class="text-sm text-slate-300 leading-relaxed">{{ confirmDialog.message }}</p>
+              </div>
+            </div>
+            <div class="px-5 py-3 border-t border-slate-700 flex items-center justify-end gap-3">
+              <button @click="closeConfirm" class="btn-secondary" :disabled="submitting">
+                继续编辑
+              </button>
+              <button @click="executeConfirmedClose" class="btn-danger" :disabled="submitting">
+                {{ confirmDialog.confirmText }}
               </button>
             </div>
           </div>

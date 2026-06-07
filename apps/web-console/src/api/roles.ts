@@ -1,6 +1,6 @@
 import { ref } from 'vue';
 import { httpClient } from './client';
-import type { RolePermission, UpdateRoleRequest } from '@agentops/shared-types';
+import type { RolePermission, UpdateRoleRequest, UserRole } from '@agentops/shared-types';
 import rolesConfig from '../../../../packages/roles-config/src/roles.json';
 
 const localRoles = ref<RolePermission[]>(rolesConfig as RolePermission[]);
@@ -14,7 +14,7 @@ export const getRoles = async (): Promise<RolePermission[]> => {
 };
 
 export const updateRole = async (
-  role: string,
+  role: UserRole,
   data: UpdateRoleRequest
 ): Promise<RolePermission> => {
   try {

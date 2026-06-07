@@ -46,12 +46,14 @@ export interface Task {
   priority: TaskPriority;
   assignee: string;
   agentId?: string | null;
+  assignedAgentId?: string | null;
   steps: TaskStep[];
   progress: number;
   createdAt: string;
   updatedAt: string;
   startedAt?: string | null;
   completedAt?: string | null;
+  finishedAt?: string | null;
   errorMessage?: string;
 }
 

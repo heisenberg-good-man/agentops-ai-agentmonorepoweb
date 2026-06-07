@@ -39,7 +39,7 @@ provide('showToast', showToast);
 provide('currentRole', currentRole);
 
 const currentPermissions = computed(() => {
-  const role = rolesConfig.find((r: RolePermission) => r.role === currentRole.value);
+  const role = (rolesConfig as RolePermission[]).find((r) => r.role === currentRole.value);
   return role?.permissions || [];
 });
 

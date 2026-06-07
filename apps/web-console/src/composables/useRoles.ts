@@ -1,5 +1,5 @@
 import { ref, inject } from 'vue';
-import type { RolePermission, UpdateRoleRequest } from '@agentops/shared-types';
+import type { RolePermission, UpdateRoleRequest, UserRole } from '@agentops/shared-types';
 import { getRoles, updateRole } from '@/api/roles';
 
 type ShowToastFn = (message: string, type?: 'success' | 'error') => void;
@@ -20,7 +20,7 @@ export function useRoles() {
     }
   };
 
-  const handleUpdateRole = async (role: string, data: UpdateRoleRequest) => {
+  const handleUpdateRole = async (role: UserRole, data: UpdateRoleRequest) => {
     try {
       const updatedRole = await updateRole(role, data);
       const index = roles.value.findIndex((r) => r.role === role);
